@@ -112,6 +112,15 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
   }
 
   /**
+   *
+   */
+  protected def groupOffersBySlave(offers: Seq[Offer]): Iterable[MesosOfferCollection] = {
+    offers.groupBy(offer => offer.getSlaveId.getValue)
+      .values
+      .map(MesosOfferCollection)
+  }
+
+  /**
    * Converts the attributes from the resource offer into a Map of name -> Attribute Value
    * The attribute values are the mesos attribute types and they are
    * @param offerAttributes

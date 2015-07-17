@@ -25,6 +25,7 @@ import scala.collection.JavaConversions._
 import scala.collection.mutable.{HashMap, HashSet}
 
 import com.google.common.collect.HashBiMap
+import org.apache.mesos.protobuf.GeneratedMessage
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.{Scheduler => MScheduler, _}
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
@@ -107,7 +108,7 @@ private[spark] class CoarseMesosSchedulerBackend(
     startScheduler(master, CoarseMesosSchedulerBackend.this, fwInfo)
   }
 
-  def createCommand(offer: Offer, numCores: Int, taskId: Int): CommandInfo = {
+  def createCommand(offers: MesosOfferCollection, numCores: Int, taskId: Int): CommandInfo = {
     val executorSparkHome = conf.getOption("spark.mesos.executor.home")
       .orElse(sc.getSparkHome())
       .getOrElse {
@@ -151,21 +152,21 @@ private[spark] class CoarseMesosSchedulerBackend(
         "%s \"%s\" org.apache.spark.executor.CoarseGrainedExecutorBackend"
           .format(prefixEnv, runScript) +
         s" --driver-url $driverURL" +
-        s" --executor-id ${offer.getSlaveId.getValue}" +
-        s" --hostname ${offer.getHostname}" +
+        s" --executor-id ${offers.getSlaveId.getValue}" +
+        s" --hostname ${offers.getHostname}" +
         s" --cores $numCores" +
         s" --app-id $appId")
     } else {
       // Grab everything to the first '.'. We'll use that and '*' to
       // glob the directory "correctly".
       val basename = uri.get.split('/').last.split('.').head
-      val executorId = sparkExecutorId(offer.getSlaveId.getValue, taskId.toString)
+      val executorId = sparkExecutorId(offers.getSlaveId.getValue, taskId.toString)
       command.setValue(
         s"cd $basename*; $prefixEnv " +
          "./bin/spark-class org.apache.spark.executor.CoarseGrainedExecutorBackend" +
         s" --driver-url $driverURL" +
         s" --executor-id $executorId" +
-        s" --hostname ${offer.getHostname}" +
+        s" --hostname ${offers.getHostname}" +
         s" --cores $numCores" +
         s" --app-id $appId")
       command.addUris(CommandInfo.URI.newBuilder().setValue(uri.get))
@@ -203,13 +204,13 @@ private[spark] class CoarseMesosSchedulerBackend(
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
-      for (offer <- offers) {
-        val offerAttributes = toAttributeMap(offer.getAttributesList)
+      for (offerCollection <- groupOffersBySlave(offers)) {
+        val collectionAttributes = offerCollection.getAttributes
+        val offerAttributes = collectionAttributes.values.reduceLeft(_ ++ _)
         val meetsConstraints = matchesAttributeRequirements(slaveOfferConstraints, offerAttributes)
-        val slaveId = offer.getSlaveId.getValue
-        val mem = getResource(offer.getResourcesList, "mem")
-        val cpus = getResource(offer.getResourcesList, "cpus").toInt
-        val id = offer.getId.getValue
+        val slaveId = offerCollection.getSlaveId.getValue
+        val mem = offerCollection.mem
+        val cpus = offerCollection.cpus.toInt // TODO(CD): fix
         if (taskIdToSlaveId.size < executorLimit &&
             totalCoresAcquired < maxCores &&
             meetsConstraints &&
@@ -218,7 +219,7 @@ private[spark] class CoarseMesosSchedulerBackend(
             failuresBySlaveId.getOrElse(slaveId, 0) < MAX_SLAVE_FAILURES &&
             !slaveIdsWithExecutors.contains(slaveId)) {
           // Launch an executor on the slave
-          val cpusToUse = math.min(cpus, maxCores - totalCoresAcquired)
+          val cpusToUse = math.min(cpus, maxCores - totalCoresAcquired) // TODO(CD): also fix
           totalCoresAcquired += cpusToUse
           val taskId = newMesosTaskId()
           taskIdToSlaveId(taskId) = slaveId
@@ -226,8 +227,8 @@ private[spark] class CoarseMesosSchedulerBackend(
           coresByTaskId(taskId) = cpusToUse
           val task = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
-            .setSlaveId(offer.getSlaveId)
-            .setCommand(createCommand(offer, cpusToUse + extraCoresPerSlave, taskId))
+            .setSlaveId(offerCollection.getSlaveId)
+            .setCommand(createCommand(offerCollection, cpusToUse + extraCoresPerSlave, taskId))
             .setName("Task " + taskId)
             .addResources(createResource("cpus", cpusToUse))
             .addResources(createResource("mem", calculateTotalMemory(sc)))
@@ -237,15 +238,26 @@ private[spark] class CoarseMesosSchedulerBackend(
               .setupContainerBuilderDockerInfo(image, sc.conf, task.getContainerBuilder)
           }
 
-          // accept the offer and launch the task
-          logDebug(s"Accepting offer: $id with attributes: $offerAttributes mem: $mem cpu: $cpus")
-          d.launchTasks(
-            Collections.singleton(offer.getId),
-            Collections.singleton(task.build()), filters)
+          // accept the offers and launch the task
+          val offerIds = offerCollection.offers.map(_.getId)
+          for(offer <- offerCollection.offers) {
+            val id = offer.getId.getValue
+            val attributes = collectionAttributes(offer.getId)
+            val offerMem = getResource(offer.getResourcesList, "mem") // TODO(CD): factor this better
+            val offerCpus = getResource(offer.getResourcesList, "cpus")
+            logDebug(s"Accepting offer: $id with attributes: $attributes mem: $offerMem cpu: $offerCpus")
+          }
+          d.launchTasks(offerIds, Collections.singleton(task.build()), filters)
         } else {
-          // Decline the offer
-          logDebug(s"Declining offer: $id with attributes: $offerAttributes mem: $mem cpu: $cpus")
-          d.declineOffer(offer.getId)
+          // Decline the offers
+          for (offer <- offerCollection.offers) {
+            val id = offer.getId.getValue
+            val attributes = collectionAttributes(offer.getId)
+            val offerMem = getResource(offer.getResourcesList, "mem") // TODO(CD): factor this better
+            val offerCpus = getResource(offer.getResourcesList, "cpus")
+            logDebug(s"Declining offer: $id with attributes: $attributes mem: $offerMem cpu: $offerCpus")
+            d.declineOffer(offer.getId)
+          }
         }
       }
     }
