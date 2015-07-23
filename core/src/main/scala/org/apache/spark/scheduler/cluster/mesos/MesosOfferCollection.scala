@@ -17,8 +17,10 @@
 
 package org.apache.spark.scheduler.cluster.mesos
 
+import scala.collection.JavaConversions._
+
 import org.apache.mesos.protobuf.GeneratedMessage
-import org.apache.mesos.Protos.{ Offer, OfferID, SlaveID }
+import org.apache.mesos.Protos.{ Offer, OfferID, Resource, SlaveID, Value }
 
 /**
  * @pre All supplied offers have the same SlaveID
@@ -26,25 +28,59 @@ import org.apache.mesos.Protos.{ Offer, OfferID, SlaveID }
 protected[spark] case class MesosOfferCollection(offers: Seq[Offer])
     extends MesosSchedulerUtils {
 
+  import org.apache.mesos.Protos.Value.Type.SCALAR
+
   def getHostname(): String =
     offers.head.getHostname
 
   def getSlaveId(): SlaveID =
     offers.head.getSlaveId
 
-  def getResource(name: String): Double =
-    offers.foldLeft(0.0) { (acc, offer) =>
-      acc + getResource(offer.getResourcesList, name)
+  def getResources(name: String, resourceFilter: Resource => Boolean): Seq[Resource] =
+    offers.flatMap { offer =>
+      offer.getResourcesList.filter { r =>
+        r.getName == name && resourceFilter(r)
+      }
     }
 
-  def mem(): Double = getResource("mem")
+  def scalarResourceSum(name: String, resourceFilter: Resource => Boolean): Resource = {
+    val newFilter = (r: Resource) => r.getType == SCALAR && resourceFilter(r)
+    val resources = getResources(name, newFilter)
 
-  def cpus(): Double = getResource("cpus")
+    if (resources.isEmpty)
+      Resource.newBuilder
+        .setName(name)
+        .setType(SCALAR)
+        .setScalar(Value.Scalar.newBuilder.setValue(0.0))
+        .build
+    else
+      resources.reduceLeft { (acc, r) =>
+        val sum = acc.getScalar.getValue + r.getScalar.getValue
+        acc.toBuilder
+          .setScalar(Value.Scalar.newBuilder.setValue(sum))
+          .build
+      }
+  }
+
+  def mem(resourceFilter: Resource => Boolean): Double =
+    scalarResourceSum("mem", resourceFilter).getScalar.getValue
+
+  def cpus(resourceFilter: Resource => Boolean): Double =
+    scalarResourceSum("cpus", resourceFilter).getScalar.getValue
 
   def getAttributes(): Map[OfferID, Map[String, GeneratedMessage]] =
     offers
       .map(offer => offer.getId -> toAttributeMap(offer.getAttributesList))
       .toMap
       .withDefaultValue(Map.empty[String, GeneratedMessage])
+
+}
+
+object MesosOfferCollection {
+  private[mesos] def defaultResourceFilter: Resource => Boolean =
+    (r: Resource) => true
+
+  private[mesos] def revocableResourceFilter: Resource => Boolean =
+    (r: Resource) => r.hasRevocable
 
 }

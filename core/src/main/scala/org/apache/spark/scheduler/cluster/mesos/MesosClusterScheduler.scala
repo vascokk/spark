@@ -126,7 +126,8 @@ private[spark] class MesosClusterScheduler(
   private val queuedCapacity = conf.getInt("spark.mesos.maxDrivers", 200)
   private val retainedDrivers = conf.getInt("spark.mesos.retainedDrivers", 200)
   private val maxRetryWaitTime = conf.getInt("spark.mesos.cluster.retry.wait.max", 60) // 1 minute
-  private val acceptRevocableResources = conf.get("spark.mesos.acceptRevocableResources", "false").toBoolean
+  private val acceptRevocableResources: Seq[String] =
+    parseRevocableResourcesString(conf.get("spark.mesos.acceptRevocableResources", ""))
 
   private val schedulerState = engineFactory.createEngine("scheduler")
   private val stateLock = new ReentrantLock()
@@ -307,7 +308,7 @@ private[spark] class MesosClusterScheduler(
       builder.setId(FrameworkID.newBuilder().setValue(id).build())
       frameworkId = id
     }
-    if (acceptRevocableResources) {
+    if (acceptRevocableResources.nonEmpty) {
       builder.addCapabilities(FrameworkInfo.Capability.newBuilder().setType(
         FrameworkInfo.Capability.Type.REVOCABLE_RESOURCES))
     }

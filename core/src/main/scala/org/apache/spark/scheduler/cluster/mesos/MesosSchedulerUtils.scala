@@ -101,24 +101,13 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
     (attr.getName, attr.getText.getValue.split(',').toSet)
   }
 
-
-  /** Build a Mesos resource protobuf object */
-  protected def createResource(resourceName: String, quantity: Double): Protos.Resource = {
-    Resource.newBuilder()
-      .setName(resourceName)
-      .setType(Value.Type.SCALAR)
-      .setScalar(Value.Scalar.newBuilder().setValue(quantity).build())
-      .build()
-  }
-
   /**
    *
    */
-  protected def groupOffersBySlave(offers: Seq[Offer]): Iterable[MesosOfferCollection] = {
+  protected def groupOffersBySlave(offers: Seq[Offer]): Iterable[MesosOfferCollection] =
     offers.groupBy(offer => offer.getSlaveId.getValue)
       .values
-      .map(MesosOfferCollection)
-  }
+      .map(MesosOfferCollection(_))
 
   /**
    * Converts the attributes from the resource offer into a Map of name -> Attribute Value
@@ -226,6 +215,9 @@ private[mesos] trait MesosSchedulerUtils extends Logging {
       }
     }
   }
+
+  def parseRevocableResourcesString(value: String): Seq[String] =
+    value.split(",").map(_.trim).filter(_.nonEmpty)
 
   // These defaults copied from YARN
   private val MEMORY_OVERHEAD_FRACTION = 0.10

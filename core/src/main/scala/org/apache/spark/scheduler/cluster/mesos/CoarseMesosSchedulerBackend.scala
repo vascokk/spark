@@ -197,6 +197,16 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   override def reregistered(d: SchedulerDriver, masterInfo: MasterInfo) {}
 
+  protected[this] lazy val acceptRevocableResources: Seq[String] =
+    parseRevocableResourcesString(conf.get("spark.mesos.acceptRevocableResources", ""))
+
+  def getResourceFilter(name: String): (Resource => Boolean) =
+    if (acceptRevocableResources contains name)
+      MesosOfferCollection.revocableResourceFilter
+    else
+      // accept only nonrevocable resources
+      (r: Resource) => !MesosOfferCollection.revocableResourceFilter(r)
+
   /**
    * Method called by Mesos to offer resources on slaves. We respond by launching an executor,
    * unless we've already launched more than we wanted to.
@@ -209,8 +219,10 @@ private[spark] class CoarseMesosSchedulerBackend(
         val offerAttributes = collectionAttributes.values.reduceLeft(_ ++ _)
         val meetsConstraints = matchesAttributeRequirements(slaveOfferConstraints, offerAttributes)
         val slaveId = offerCollection.getSlaveId.getValue
-        val mem = offerCollection.mem
-        val cpus = offerCollection.cpus.toInt // TODO(CD): fix
+        val memResource = offerCollection.scalarResourceSum("mem", getResourceFilter("mem"))
+        val mem = memResource.getScalar.getValue
+        val cpusResource = offerCollection.scalarResourceSum("cpus", getResourceFilter("cpus"))
+        val cpus = cpusResource.getScalar.getValue.toInt
         if (taskIdToSlaveId.size < executorLimit &&
             totalCoresAcquired < maxCores &&
             meetsConstraints &&
@@ -230,8 +242,12 @@ private[spark] class CoarseMesosSchedulerBackend(
             .setSlaveId(offerCollection.getSlaveId)
             .setCommand(createCommand(offerCollection, cpusToUse + extraCoresPerSlave, taskId))
             .setName("Task " + taskId)
-            .addResources(createResource("cpus", cpusToUse))
-            .addResources(createResource("mem", calculateTotalMemory(sc)))
+            .addResources(
+              cpusResource.toBuilder.setScalar(
+                Value.Scalar.newBuilder.setValue(cpusToUse)))
+            .addResources(
+              memResource.toBuilder.setScalar(
+                Value.Scalar.newBuilder.setValue(calculateTotalMemory(sc))))
 
           sc.conf.getOption("spark.mesos.executor.docker.image").foreach { image =>
             MesosSchedulerBackendUtil
