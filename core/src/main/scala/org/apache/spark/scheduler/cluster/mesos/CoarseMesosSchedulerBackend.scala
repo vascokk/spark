@@ -214,15 +214,22 @@ private[spark] class CoarseMesosSchedulerBackend(
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
+
       for (offerCollection <- groupOffersBySlave(offers)) {
         val collectionAttributes = offerCollection.getAttributes
         val offerAttributes = collectionAttributes.values.reduceLeft(_ ++ _)
         val meetsConstraints = matchesAttributeRequirements(slaveOfferConstraints, offerAttributes)
+
         val slaveId = offerCollection.getSlaveId.getValue
+
         val memResource = offerCollection.scalarResourceSum("mem", getResourceFilter("mem"))
         val mem = memResource.getScalar.getValue
+        logDebug(s"Considering offer collection with mem: [$mem]")
+
         val cpusResource = offerCollection.scalarResourceSum("cpus", getResourceFilter("cpus"))
         val cpus = cpusResource.getScalar.getValue.toInt
+        logDebug(s"Considering offer collection with cpus: [$mem]")
+
         if (taskIdToSlaveId.size < executorLimit &&
             totalCoresAcquired < maxCores &&
             meetsConstraints &&
@@ -230,13 +237,16 @@ private[spark] class CoarseMesosSchedulerBackend(
             cpus >= 1 &&
             failuresBySlaveId.getOrElse(slaveId, 0) < MAX_SLAVE_FAILURES &&
             !slaveIdsWithExecutors.contains(slaveId)) {
+
           // Launch an executor on the slave
           val cpusToUse = math.min(cpus, maxCores - totalCoresAcquired) // TODO(CD): also fix
           totalCoresAcquired += cpusToUse
+
           val taskId = newMesosTaskId()
           taskIdToSlaveId(taskId) = slaveId
           slaveIdsWithExecutors += slaveId
           coresByTaskId(taskId) = cpusToUse
+
           val task = MesosTaskInfo.newBuilder()
             .setTaskId(TaskID.newBuilder().setValue(taskId.toString).build())
             .setSlaveId(offerCollection.getSlaveId)
@@ -263,7 +273,10 @@ private[spark] class CoarseMesosSchedulerBackend(
             val offerCpus = getResource(offer.getResourcesList, "cpus")
             logDebug(s"Accepting offer: $id with attributes: $attributes mem: $offerMem cpu: $offerCpus")
           }
-          d.launchTasks(offerIds, Collections.singleton(task.build()), filters)
+
+          val taskInfo = task.build()
+          logDebug(s"Launching task:\n$taskInfo")
+          d.launchTasks(offerIds, Collections.singleton(taskInfo), filters)
         } else {
           // Decline the offers
           for (offer <- offerCollection.offers) {
@@ -271,7 +284,7 @@ private[spark] class CoarseMesosSchedulerBackend(
             val attributes = collectionAttributes(offer.getId)
             val offerMem = getResource(offer.getResourcesList, "mem") // TODO(CD): factor this better
             val offerCpus = getResource(offer.getResourcesList, "cpus")
-            logDebug(s"Declining offer: $id with attributes: $attributes mem: $offerMem cpu: $offerCpus")
+            logInfo(s"Declining offer: $id with attributes: $attributes mem: $offerMem cpu: $offerCpus")
             d.declineOffer(offer.getId)
           }
         }
