@@ -104,8 +104,14 @@ private[spark] class CoarseMesosSchedulerBackend(
 
   override def start() {
     super.start()
-    val fwInfo = FrameworkInfo.newBuilder().setUser(sc.sparkUser).setName(sc.appName).build()
-    startScheduler(master, CoarseMesosSchedulerBackend.this, fwInfo)
+    val fwInfo = FrameworkInfo.newBuilder()
+      .setUser(sc.sparkUser)
+      .setName(sc.appName)
+    if (acceptRevocableResources.nonEmpty) {
+      fwInfo.addCapabilities(FrameworkInfo.Capability.newBuilder().setType(
+        FrameworkInfo.Capability.Type.REVOCABLE_RESOURCES))
+    }
+    startScheduler(master, CoarseMesosSchedulerBackend.this, fwInfo.build())
   }
 
   def createCommand(offers: MesosOfferCollection, numCores: Int, taskId: Int): CommandInfo = {
