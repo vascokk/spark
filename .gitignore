@@ -23,10 +23,10 @@ build/apache-maven*
 build/zinc*
 build/scala*
 conf/java-opts
-conf/*.sh
+# conf/*.sh
 conf/*.cmd
 conf/*.properties
-conf/*.conf
+# conf/*.conf
 conf/*.xml
 conf/slaves
 docs/_site
