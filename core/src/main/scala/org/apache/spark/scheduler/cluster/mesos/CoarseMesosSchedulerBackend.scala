@@ -18,12 +18,16 @@
 package org.apache.spark.scheduler.cluster.mesos
 
 import java.io.File
+
+import java.util.concurrent.TimeUnit
+
 import java.util.concurrent.locks.ReentrantLock
 import java.util.{Collections, List => JList}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.{HashMap, HashSet}
 
+import com.google.common.base.Stopwatch
 import com.google.common.collect.HashBiMap
 import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.{Scheduler => MScheduler, SchedulerDriver}
@@ -252,6 +256,13 @@ private[spark] class CoarseMesosSchedulerBackend(
    */
   override def resourceOffers(d: SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
+      if (stopCalled) {
+        logDebug("Ignoring offers during shutdown")
+        // Driver should simply return a stopped status on race
+        // condition between this.stop() and completing here
+        offers.asScala.map(_.getId).foreach(d.declineOffer)
+        return
+      }
       val filters = Filters.newBuilder().setRefuseSeconds(5).build()
       for (offer <- offers.asScala) {
         val offerAttributes = toAttributeMap(offer.getAttributesList)
@@ -371,7 +382,29 @@ private[spark] class CoarseMesosSchedulerBackend(
   }
 
   override def stop() {
-    super.stop()
+    // Make sure we're not launching tasks during shutdown
+    stateLock.synchronized {
+      if (stopCalled) {
+        logWarning("Stop called multiple times, ignoring")
+        return
+      }
+      stopCalled = true
+      super.stop()
+    }
+    // Wait for executors to report done, or else mesosDriver.stop() will forcefully kill them.
+    // See SPARK-12330
+    val stopwatch = new Stopwatch()
+    stopwatch.start()
+    // slaveIdsWithExecutors has no memory barrier, so this is eventually consistent
+    while (slaveIdsWithExecutors.nonEmpty &&
+      stopwatch.elapsed(TimeUnit.MILLISECONDS) < shutdownTimeoutMS) {
+      Thread.sleep(100)
+    }
+    if (slaveIdsWithExecutors.nonEmpty) {
+      logWarning(s"Timed out waiting for ${slaveIdsWithExecutors.size} remaining executors "
+        + s"to terminate within $shutdownTimeoutMS ms. This may leave temporary files "
+        + "on the mesos nodes.")
+    }
     if (mesosDriver != null) {
       mesosDriver.stop()
     }
