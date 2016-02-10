@@ -105,36 +105,6 @@ class YarnSparkHadoopUtil extends SparkHadoopUtil {
       .toSet
   }
 
-  def getTokenRenewer(conf: Configuration): String = {
-    val delegTokenRenewer = Master.getMasterPrincipal(conf)
-    logDebug("delegation token renewer is: " + delegTokenRenewer)
-    if (delegTokenRenewer == null || delegTokenRenewer.length() == 0) {
-      val errorMessage = "Can't get Master Kerberos principal for use as renewer"
-      logError(errorMessage)
-      throw new SparkException(errorMessage)
-    }
-    delegTokenRenewer
-  }
-
-  /**
-   * Obtains tokens for the namenodes passed in and adds them to the credentials.
-   */
-  def obtainTokensForNamenodes(
-    paths: Set[Path],
-    conf: Configuration,
-    creds: Credentials,
-    renewer: Option[String] = None
-  ): Unit = {
-    if (UserGroupInformation.isSecurityEnabled()) {
-      val delegTokenRenewer = renewer.getOrElse(getTokenRenewer(conf))
-      paths.foreach { dst =>
-        val dstFs = dst.getFileSystem(conf)
-        logInfo("getting token for namenode: " + dst)
-        dstFs.addDelegationTokens(delegTokenRenewer, creds)
-      }
-    }
-  }
-
   /**
    * Obtains token for the Hive metastore and adds them to the credentials.
    */
