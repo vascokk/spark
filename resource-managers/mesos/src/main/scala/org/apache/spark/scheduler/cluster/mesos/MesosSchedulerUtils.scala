@@ -36,8 +36,6 @@ import org.apache.spark.internal.Logging
 import org.apache.spark.internal.config._
 import org.apache.spark.util.Utils
 
-
-
 /**
  * Shared trait for implementing a Mesos Scheduler. This holds common state and helper
  * methods and Mesos scheduler will use.
@@ -442,7 +440,11 @@ trait MesosSchedulerUtils extends Logging {
 
   /**
    * The values of the non-zero ports to be used by the executor process.
+<<<<<<< 2fff51418b548e41f8878d6e61752a3abcd7cd73
  *
+=======
+   *
+>>>>>>> [Mesosphere SPARK-126] Add Mesos Kerberos support
    * @param conf the spark config to use
    * @return the ono-zero values of the ports
    */
@@ -554,5 +556,14 @@ trait MesosSchedulerUtils extends Logging {
       case _ =>
         driver.declineOffer(offer.getId)
     }
+
+  // Pass the krb5.conf to the scheduler
+  def passKerberosConf(envBuilder: Environment.Builder): Unit = {
+    Option(System.getenv().getOrDefault("SPARK_MESOS_KRB5_CONF_BASE64", null)).foreach(krb5conf => {
+      logError(s"Passing ${krb5conf.length} bytes krb5.conf to sub-task")
+      envBuilder.addVariables(Environment.Variable.newBuilder().
+        setName("SPARK_MESOS_KRB5_CONF_BASE64").setValue(krb5conf).build()
+      )
+    })
   }
 }
