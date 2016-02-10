@@ -393,6 +393,9 @@ private[spark] class MesosClusterScheduler(
       envBuilder.addVariables(Variable.newBuilder().setName(k).setValue(v).build())
     }
 
+    // Pass the krb5.conf to the scheduler
+    passKerberosConf(envBuilder)
+
     // Pass all spark properties to executor.
     val executorOpts = desc.schedulerProperties.map { case (k, v) => s"-D$k=$v" }.mkString(" ")
     envBuilder.addVariables(
@@ -457,6 +460,15 @@ private[spark] class MesosClusterScheduler(
       options ++= Seq("--class", desc.command.mainClass)
     }
 
+    desc.schedulerProperties.get("spark.yarn.principal").map { v =>
+      options ++= Seq("--conf", s"spark.yarn.principal=$v")
+    }
+    desc.schedulerProperties.get("spark.mesos.kerberos.keytabBase64").map { v =>
+      options ++= Seq("--conf", s"spark.mesos.kerberos.keytabBase64=$v")
+    }
+    desc.schedulerProperties.get("spark.mesos.kerberos.tgtBase64").map { v =>
+      options ++= Seq("--conf", s"spark.mesos.kerberos.tgtBase64=$v")
+    }
     desc.schedulerProperties.get("spark.executor.memory").map { v =>
       options ++= Seq("--executor-memory", v)
     }
