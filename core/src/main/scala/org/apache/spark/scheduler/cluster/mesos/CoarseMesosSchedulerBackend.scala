@@ -22,7 +22,8 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 import java.util.concurrent.locks.ReentrantLock
-import java.util.{Collections, List => JList}
+import java.util.{List => JList, Collections}
+import javax.xml.bind.DatatypeConverter
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -40,6 +41,7 @@ import org.apache.spark.network.shuffle.mesos.MesosExternalShuffleClient
 import org.apache.spark.rpc.RpcAddress
 import org.apache.spark.scheduler.{SlaveLost, TaskSchedulerImpl}
 import org.apache.spark.scheduler.cluster.CoarseGrainedSchedulerBackend
+import org.apache.spark.scheduler.cluster.CoarseGrainedClusterMessages.UpdateDelegationTokens
 import org.apache.spark.util.Utils
 
 /**
@@ -58,6 +60,7 @@ private[spark] class CoarseMesosSchedulerBackend(
     master: String,
     securityManager: SecurityManager)
   extends CoarseGrainedSchedulerBackend(scheduler, sc.env.rpcEnv)
+  with DelegationTokenBroadcaster
   with MScheduler
   with MesosSchedulerUtils {
 
@@ -153,6 +156,10 @@ private[spark] class CoarseMesosSchedulerBackend(
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
     startScheduler(driver)
+
+    if (kerberosBackend != null) {
+      kerberosBackend.start()
+    }
   }
 
   def createCommand(offer: Offer, numCores: Int, taskId: String): CommandInfo = {
@@ -174,6 +181,9 @@ private[spark] class CoarseMesosSchedulerBackend(
     val prefixEnv = conf.getOption("spark.executor.extraLibraryPath").map { p =>
       Utils.libraryPathEnvPrefix(Seq(p))
     }.getOrElse("")
+
+    // Pass the krb5.conf to the scheduler
+    passKerberosConf(environment)
 
     environment.addVariables(
       Environment.Variable.newBuilder()
@@ -223,6 +233,27 @@ private[spark] class CoarseMesosSchedulerBackend(
     }
 
     command.build()
+  }
+
+  override def broadcastDelegationTokens(tokens: Array[Byte]): Unit = {
+    // store new tokens locally for future executors
+    val initialTokensBuf = DatatypeConverter.printBase64Binary(tokens)
+    conf.set("spark.mesos.kerberos.hdfsDelegationTokens", initialTokensBuf)
+
+    // send token to existing executors
+    logInfo("Sending UpdateDelegationTokens to all executors")
+    driverEndpoint.send(UpdateDelegationTokens(tokens))
+  }
+
+  val principal = conf.get("spark.yarn.principal", null)
+  var kerberosBackend: MesosKerberosHandler = null
+  if (principal != null) {
+    kerberosBackend = new MesosKerberosHandler(conf, principal, this)
+
+    // store tokens in spark property which is sent to the executors initially
+    val initialTokens = kerberosBackend.createHDFSDelegationTokens
+    val initialTokensBuf = DatatypeConverter.printBase64Binary(initialTokens)
+    conf.set("spark.mesos.kerberos.hdfsDelegationTokens", initialTokensBuf)
   }
 
   protected def driverURL: String = {
@@ -506,6 +537,10 @@ private[spark] class CoarseMesosSchedulerBackend(
       logWarning(s"Timed out waiting for ${numExecutors()} remaining executors "
         + s"to terminate within $shutdownTimeoutMS ms. This may leave temporary files "
         + "on the mesos nodes.")
+    }
+
+    if (kerberosBackend != null) {
+      kerberosBackend.stop()
     }
 
     if (mesosDriver != null) {
