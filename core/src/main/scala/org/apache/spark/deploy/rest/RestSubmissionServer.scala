@@ -22,13 +22,14 @@ import javax.servlet.http.{HttpServlet, HttpServletRequest, HttpServletResponse}
 import scala.io.Source
 
 import com.fasterxml.jackson.core.JsonProcessingException
-import org.eclipse.jetty.server.{HttpConnectionFactory, Server, ServerConnector}
+import org.eclipse.jetty.server.{Connector, HttpConnectionFactory, Server, ServerConnector}
 import org.eclipse.jetty.servlet.{ServletContextHandler, ServletHolder}
 import org.eclipse.jetty.util.thread.{QueuedThreadPool, ScheduledExecutorScheduler}
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
 
 import org.apache.spark.{SPARK_VERSION => sparkVersion, SparkConf}
+import org.apache.spark.SecurityManager
 import org.apache.spark.internal.Logging
 import org.apache.spark.util.Utils
 
@@ -83,6 +84,12 @@ private[spark] abstract class RestSubmissionServer(
     threadPool.setDaemon(true)
     val server = new Server(threadPool)
 
+    val sm = new SecurityManager(masterConf)
+    val ctxFactory = if (sm.submissionServerSSLOptions.enabled) {
+      sm.submissionServerSSLOptions.createJettySslContextFactory.get
+    } else {
+      new HttpConnectionFactory()
+    }
     val connector = new ServerConnector(
       server,
       null,
@@ -91,7 +98,8 @@ private[spark] abstract class RestSubmissionServer(
       null,
       -1,
       -1,
-      new HttpConnectionFactory())
+      ctxFactory)
+
     connector.setHost(host)
     connector.setPort(startPort)
     server.addConnector(connector)
