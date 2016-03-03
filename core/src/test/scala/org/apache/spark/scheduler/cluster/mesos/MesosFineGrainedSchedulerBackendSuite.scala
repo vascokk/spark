@@ -92,7 +92,7 @@ class MesosFineGrainedSchedulerBackendSuite
     val driver = mock[SchedulerDriver]
     when(driver.start()).thenReturn(Protos.Status.DRIVER_RUNNING)
 
-    val backend = new MesosSchedulerBackend(taskScheduler, sc, "master") {
+    val backend = new MesosFineGrainedSchedulerBackend(taskScheduler, sc, "master") {
       override protected def createSchedulerDriver(
         masterUrl: String,
         scheduler: Scheduler,
