@@ -28,6 +28,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos._
+import org.apache.mesos.{Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos.Value.Scalar
 import org.mockito.{ArgumentCaptor, Matchers}
 import org.mockito.Matchers._
