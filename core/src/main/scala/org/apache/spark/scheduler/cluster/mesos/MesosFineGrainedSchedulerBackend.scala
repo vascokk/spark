@@ -82,6 +82,8 @@ private[spark] class MesosFineGrainedSchedulerBackend(
       Option.empty,
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
+
+    unsetFrameworkID(sc)
     startScheduler(driver)
   }
 
