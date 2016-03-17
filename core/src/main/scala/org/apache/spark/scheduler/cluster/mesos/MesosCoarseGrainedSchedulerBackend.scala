@@ -160,6 +160,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       Option.empty,
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
+    unsetFrameworkID(sc)
     startScheduler(driver)
 
     if (kerberosBackend != null) {
