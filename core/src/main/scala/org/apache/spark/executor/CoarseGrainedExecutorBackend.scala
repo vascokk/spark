@@ -19,7 +19,6 @@ package org.apache.spark.executor
 
 import java.net.URL
 import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.xml.bind.DatatypeConverter
 
 import org.apache.hadoop.security.UserGroupInformation
@@ -47,7 +46,6 @@ private[spark] class CoarseGrainedExecutorBackend(
     env: SparkEnv)
   extends ThreadSafeRpcEndpoint with ExecutorBackend with Logging {
 
-  private[this] val stopping = new AtomicBoolean(false)
   var executor: Executor = null
   @volatile var driver: Option[RpcEndpointRef] = None
 
@@ -109,14 +107,12 @@ private[spark] class CoarseGrainedExecutorBackend(
       }
 
     case StopExecutor =>
-      stopping.set(true)
       logInfo("Driver commanded a shutdown")
       // Cannot shutdown here because an ack may need to be sent back to the caller. So send
       // a message to self to actually do the shutdown.
       self.send(Shutdown)
 
     case Shutdown =>
-      stopping.set(true)
       executor.stop()
       stop()
       rpcEnv.shutdown()
@@ -127,9 +123,7 @@ private[spark] class CoarseGrainedExecutorBackend(
   }
 
   override def onDisconnected(remoteAddress: RpcAddress): Unit = {
-    if (stopping.get()) {
-      logInfo(s"Driver from $remoteAddress disconnected during shutdown")
-    } else if (driver.exists(_.address == remoteAddress)) {
+    if (driver.exists(_.address == remoteAddress)) {
       logError(s"Driver $remoteAddress disassociated! Shutting down.")
       System.exit(1)
     } else {
