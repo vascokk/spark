@@ -385,7 +385,15 @@ private[spark] class MesosClusterScheduler(
     )
 
     val driverEnv = desc.conf.getAllWithPrefix("spark.mesos.driverEnv.")
-    val env = driverEnv ++ commandEnv
+    // Hack so Spark jobs can authenticate with Mesos using dcos-oauth
+    val kDcosServiceAccountCredential = "DCOS_SERVICE_ACCOUNT_CREDENTIAL"
+    val credentialMap = if (sys.env.contains(kDcosServiceAccountCredential)) {
+      Map(kDcosServiceAccountCredential -> sys.env("DCOS_SERVICE_ACCOUNT_CREDENTIAL"))
+    } else {
+      Map()
+    }
+
+    val env = driverEnv ++ commandEnv ++ credentialMap
 
     val envBuilder = Environment.newBuilder()
 
@@ -775,7 +783,6 @@ private[spark] class MesosClusterScheduler(
         tasks)
     }
     tasks.foreach { case (offerId, taskInfos) =>
-      logTrace(s"Launching taskInfo\n ${taskInfos.toString}")
       driver.launchTasks(Collections.singleton(offerId), taskInfos.asJava)
     }
 
