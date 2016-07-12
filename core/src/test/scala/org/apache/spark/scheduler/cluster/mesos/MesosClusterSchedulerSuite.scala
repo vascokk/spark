@@ -31,17 +31,24 @@ import org.scalatest.mock.MockitoSugar
 import org.apache.spark.{LocalSparkContext, SparkConf, SparkFunSuite}
 import org.apache.spark.deploy.Command
 import org.apache.spark.deploy.mesos.MesosDriverDescription
-
+import org.apache.spark.scheduler.cluster.mesos.Utils
 
 class MesosClusterSchedulerSuite extends SparkFunSuite with LocalSparkContext with MockitoSugar {
 
   private val command = new Command("mainClass", Seq("arg"), Map(), Seq(), Seq(), Seq())
+  private var driver: SchedulerDriver = _
   private var scheduler: MesosClusterScheduler = _
 
-  override def beforeEach(): Unit = {
+  private def setScheduler(sparkConfVars: Map[String, String] = null): Unit = {
     val conf = new SparkConf()
     conf.setMaster("mesos://localhost:5050")
     conf.setAppName("spark mesos")
+
+    if (sparkConfVars != null) {
+      conf.setAll(sparkConfVars)
+    }
+
+    driver = mock[SchedulerDriver]
     scheduler = new MesosClusterScheduler(
       new BlackHoleMesosClusterPersistenceEngineFactory, conf) {
       override def start(): Unit = { ready = true }
@@ -50,9 +57,11 @@ class MesosClusterSchedulerSuite extends SparkFunSuite with LocalSparkContext wi
   }
 
   test("can queue drivers") {
+    setScheduler()
+
     val response = scheduler.submitDriver(
-        new MesosDriverDescription("d1", "jar", 1000, 1, true,
-          command, Map[String, String](), "s1", new Date()))
+      new MesosDriverDescription("d1", "jar", 1000, 1, true,
+        command, Map[String, String](), "s1", new Date()))
     assert(response.success)
     val response2 =
       scheduler.submitDriver(new MesosDriverDescription(
@@ -65,6 +74,8 @@ class MesosClusterSchedulerSuite extends SparkFunSuite with LocalSparkContext wi
   }
 
   test("can kill queued drivers") {
+    setScheduler()
+
     val response = scheduler.submitDriver(
         new MesosDriverDescription("d1", "jar", 1000, 1, true,
           command, Map[String, String](), "s1", new Date()))
@@ -76,6 +87,8 @@ class MesosClusterSchedulerSuite extends SparkFunSuite with LocalSparkContext wi
   }
 
   test("can handle multiple roles") {
+    setScheduler()
+
     val driver = mock[SchedulerDriver]
     val response = scheduler.submitDriver(
       new MesosDriverDescription("d1", "jar", 1200, 1.5, true,
@@ -135,5 +148,67 @@ class MesosClusterSchedulerSuite extends SparkFunSuite with LocalSparkContext wi
       Matchers.eq(Collections.singleton(offer.getId)),
       capture.capture()
     )
+  }
+
+  test("escapes commandline args for the shell") {
+    setScheduler()
+
+    val conf = new SparkConf()
+    conf.setMaster("mesos://localhost:5050")
+    conf.setAppName("spark mesos")
+    val scheduler = new MesosClusterScheduler(
+      new BlackHoleMesosClusterPersistenceEngineFactory, conf) {
+      override def start(): Unit = { ready = true }
+    }
+    val escape = scheduler.shellEscape _
+    def wrapped(str: String): String = "\"" + str + "\""
+
+    // Wrapped in quotes
+    assert(escape("'should be left untouched'") === "'should be left untouched'")
+    assert(escape("\"should be left untouched\"") === "\"should be left untouched\"")
+
+    // Harmless
+    assert(escape("") === "")
+    assert(escape("harmless") === "harmless")
+    assert(escape("har-m.l3ss") === "har-m.l3ss")
+
+    // Special Chars escape
+    assert(escape("should escape this \" quote") === wrapped("should escape this \\\" quote"))
+    assert(escape("shouldescape\"quote") === wrapped("shouldescape\\\"quote"))
+    assert(escape("should escape this $ dollar") === wrapped("should escape this \\$ dollar"))
+    assert(escape("should escape this ` backtick") === wrapped("should escape this \\` backtick"))
+    assert(escape("""should escape this \ backslash""")
+      === wrapped("""should escape this \\ backslash"""))
+    assert(escape("""\"?""") === wrapped("""\\\"?"""))
+
+
+    // Special Chars no escape only wrap
+    List(" ", "'", "<", ">", "&", "|", "?", "*", ";", "!", "#", "(", ")").foreach(char => {
+      assert(escape(s"onlywrap${char}this") === wrapped(s"onlywrap${char}this"))
+    })
+  }
+
+  test("supports spark.mesos.driverEnv.*") {
+    setScheduler()
+
+    val mem = 1000
+    val cpu = 1
+
+    val response = scheduler.submitDriver(
+      new MesosDriverDescription("d1", "jar", mem, cpu, true,
+        command,
+        Map("spark.mesos.executor.home" -> "test",
+          "spark.app.name" -> "test",
+          "spark.mesos.driverEnv.TEST_ENV" -> "TEST_VAL"),
+        "s1",
+        new Date()))
+    assert(response.success)
+
+    val offer = Utils.createOffer("o1", "s1", mem, cpu)
+    scheduler.resourceOffers(driver, List(offer).asJava)
+    val tasks = Utils.verifyTaskLaunched(driver, "o1")
+    val env = tasks.head.getCommand.getEnvironment.getVariablesList.asScala.map(v =>
+      (v.getName, v.getValue)).toMap
+    assert(env.getOrElse("TEST_ENV", null) == "TEST_VAL")
   }
 }
