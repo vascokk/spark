@@ -49,5 +49,6 @@ private[spark] object TaskState extends Enumeration {
     case MesosTaskState.TASK_KILLED => KILLED
     case MesosTaskState.TASK_LOST => LOST
     case MesosTaskState.TASK_ERROR => LOST
+    case MesosTaskState.TASK_KILLING => RUNNING
   }
 }
