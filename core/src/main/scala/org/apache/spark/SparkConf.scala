@@ -45,7 +45,7 @@ import org.apache.spark.util.Utils
  *
  * @param loadDefaults whether to also load values from Java system properties
  */
-class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging {
+class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging with Serializable {
 
   import SparkConf._
 
@@ -317,6 +317,13 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging {
     settings.entrySet().asScala.map(x => (x.getKey, x.getValue)).toArray
   }
 
+  /** Get all parameters that start with `prefix` */
+  def getAll(prefix: String): Array[(String, String)] = {
+    getAll.filter { case (k, v) => k.startsWith(prefix) }
+      .map { case (k, v) => (k.substring(prefix.length), v) }
+  }
+
+
   /** Get a parameter as an integer, falling back to a default if not set */
   def getInt(key: String, defaultValue: Int): Int = {
     getOption(key).map(_.toInt).getOrElse(defaultValue)
@@ -339,9 +346,7 @@ class SparkConf(loadDefaults: Boolean) extends Cloneable with Logging {
 
   /** Get all executor environment variables set on this SparkConf */
   def getExecutorEnv: Seq[(String, String)] = {
-    val prefix = "spark.executorEnv."
-    getAll.filter{case (k, v) => k.startsWith(prefix)}
-          .map{case (k, v) => (k.substring(prefix.length), v)}
+    getAll("spark.executorEnv.")
   }
 
   /** Get all akka conf variables set on this SparkConf */

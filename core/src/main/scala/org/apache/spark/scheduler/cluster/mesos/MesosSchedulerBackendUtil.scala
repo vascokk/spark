@@ -17,7 +17,7 @@
 
 package org.apache.spark.scheduler.cluster.mesos
 
-import org.apache.mesos.Protos.{ContainerInfo, Volume}
+import org.apache.mesos.Protos.{ContainerInfo, Image, Volume}
 import org.apache.mesos.Protos.ContainerInfo.DockerInfo
 
 import org.apache.spark.{Logging, SparkConf}
@@ -106,16 +106,25 @@ private[mesos] object MesosSchedulerBackendUtil extends Logging {
   def addDockerInfo(
       container: ContainerInfo.Builder,
       image: String,
+      containerizer: String,
       volumes: Option[List[Volume]] = None,
-      network: Option[ContainerInfo.DockerInfo.Network] = None,
       portmaps: Option[List[ContainerInfo.DockerInfo.PortMapping]] = None): Unit = {
-
-    val docker = ContainerInfo.DockerInfo.newBuilder().setImage(image)
-
-    network.foreach(docker.setNetwork)
-    portmaps.foreach(_.foreach(docker.addPortMappings))
-    container.setType(ContainerInfo.Type.DOCKER)
-    container.setDocker(docker.build())
+    val dockerContainerizer = containerizer == "docker"
+    if (dockerContainerizer) {
+      container.setType(ContainerInfo.Type.DOCKER)
+      val docker = ContainerInfo.DockerInfo.newBuilder().setImage(image)
+      // TODO (mgummelt): Remove this. Portmaps have no effect,
+      //                  as we don't support bridge networking.
+      portmaps.foreach(_.foreach(docker.addPortMappings))
+      container.setDocker(docker)
+    } else {
+      container.setType(ContainerInfo.Type.MESOS)
+      val imageProto = Image.newBuilder()
+        .setType(Image.Type.DOCKER)
+        .setDocker(Image.Docker.newBuilder().setName(image))
+      container.setMesos(ContainerInfo.MesosInfo.newBuilder().setImage(imageProto))
+      // TODO (mgummelt): add force pull support
+    }
     volumes.foreach(_.foreach(container.addVolumes))
   }
 
@@ -132,9 +141,18 @@ private[mesos] object MesosSchedulerBackendUtil extends Logging {
     val portmaps = conf
       .getOption("spark.mesos.executor.docker.portmaps")
       .map(parsePortMappingsSpec)
+
+    val containerizer = conf.get("spark.mesos.containerizer", "docker")
+    if (!List("docker", "mesos").contains(containerizer)) {
+      throw new IllegalArgumentException(
+        """spark.mesos.containerizer must be one of {"docker", "mesos"}.""" +
+          s"  You provided ${containerizer}")
+    }
+
     addDockerInfo(
       builder,
       imageName,
+      containerizer,
       volumes = volumes,
       portmaps = portmaps)
     logDebug("setupContainerDockerInfo: using docker image: " + imageName)
