@@ -376,7 +376,7 @@ private[spark] class MesosClusterScheduler(
       val sslOps = conf.getSSLConf.toArray.map({ case (k, v) => s"-D$k=$v" }).mkString(" ")
 
       var commandEnv = adjust(desc.command.environment, "SPARK_SUBMIT_OPTS", "")(
-        v => s"$v -Dspark.mesos.driver.frameworkId=${frameworkId}-${desc.submissionId} sslOps"
+        v => s"$v -Dspark.mesos.driver.frameworkId=${frameworkId}-${desc.submissionId} ${sslOps}"
       )
 
       val overridingProperties =
