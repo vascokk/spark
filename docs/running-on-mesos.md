@@ -359,17 +359,6 @@ See the [configuration page](configuration.html) for information on Spark config
   </td>
 </tr>
 <tr>
-  <td><code>spark.mesos.executor.docker.portmaps</code></td>
-  <td>(none)</td>
-  <td>
-    Set the list of incoming ports exposed by the Docker image, which was set using
-    <code>spark.mesos.executor.docker.image</code>. The format of this property is a comma-separated list of
-    mappings which take the form:
-
-    <pre>host_port:container_port[:tcp|:udp]</pre>
-  </td>
-</tr>
-<tr>
   <td><code>spark.mesos.executor.home</code></td>
   <td>driver side <code>SPARK_HOME</code></td>
   <td>
@@ -467,6 +456,55 @@ See the [configuration page](configuration.html) for information on Spark config
   <td>
     Set the Spark Mesos dispatcher webui_url for interacting with the framework.
     If unset it will point to Spark's internal web UI.
+  </td>
+  </tr>
+<tr>
+  <td><code>spark.mesos.dispatcher.driverDefault.[PropertyName]</code></td>
+  <td><code>(none)</code></td>
+  <td>
+    Set default properties for drivers submitted through the
+    dispatcher.  For example,
+    spark.mesos.dispatcher.driverProperty.spark.executor.memory=32g
+    results in the executors for all drivers submitted in cluster mode
+    to run in 32g containers.
+</td>
+</tr>
+<tr>
+  <td><code>spark.mesos.dispatcher.historyServer.url</code></td>
+  <td><code>(none)</code></td>
+  <td>
+    Set the URL of the <a href="http://spark.apache.org/docs/latest/monitoring.html#viewing-after-the-fact">history
+    server</a>.  The dispatcher will then link each driver to its entry
+    in the history server.
+  </td>
+</tr>
+<tr>
+  <td><code>spark.mesos.gpus.max</code></td>
+  <td><code>0</code></td>
+  <td>
+    Set the maximum number GPU resources to acquire for this job. Note that executors will still launch when no GPU resources are found
+    since this configuration is just a upper limit and not a guaranteed amount.
+  </td>
+  </tr>
+<tr>
+  <td><code>spark.mesos.network.name</code></td>
+  <td><code>(none)</code></td>
+  <td>
+    Attach containers to the given named network.  If this job is
+    launched in cluster mode, also launch the driver in the given named
+    network.  See
+    <a href="http://mesos.apache.org/documentation/latest/cni/">the Mesos CNI docs</a>
+    for more details.
+  </td>
+</tr>
+<tr>
+  <td><code>spark.mesos.fetcherCache.enable</code></td>
+  <td><code>false</code></td>
+  <td>
+    If set to `true`, all URIs (example: `spark.executor.uri`,
+    `spark.mesos.uris`) will be cached by the <a
+    href="http://mesos.apache.org/documentation/latest/fetcher/">Mesos
+    Fetcher Cache</a>
   </td>
 </tr>
 </table>
