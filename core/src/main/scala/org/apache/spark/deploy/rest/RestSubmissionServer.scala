@@ -85,20 +85,21 @@ private[spark] abstract class RestSubmissionServer(
     val server = new Server(threadPool)
 
     val sm = new SecurityManager(masterConf)
-    val ctxFactory = if (sm.submissionServerSSLOptions.enabled) {
-      sm.submissionServerSSLOptions.createJettySslContextFactory.get
+    val connector = if (sm.submissionServerSSLOptions.enabled) {
+      new ServerConnector(
+        server,
+        sm.submissionServerSSLOptions.createJettySslContextFactory.get)
     } else {
-      new HttpConnectionFactory()
+      new ServerConnector(
+        server,
+        null,
+        // Call this full constructor to set this, which forces daemon threads:
+        new ScheduledExecutorScheduler("RestSubmissionServer-JettyScheduler", true),
+        null,
+        -1,
+        -1,
+        new HttpConnectionFactory())
     }
-    val connector = new ServerConnector(
-      server,
-      null,
-      // Call this full constructor to set this, which forces daemon threads:
-      new ScheduledExecutorScheduler("RestSubmissionServer-JettyScheduler", true),
-      null,
-      -1,
-      -1,
-      ctxFactory)
 
     connector.setHost(host)
     connector.setPort(startPort)
