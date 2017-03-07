@@ -557,17 +557,14 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
           properties: ArrayBuffer[(String, String)]): RpcEndpointRef = endpoint
 
       // override to avoid race condition with the driver thread on `mesosDriver`
-      override def startScheduler(newDriver: SchedulerDriver): Unit = {
-        mesosDriver = newDriver
-      }
+      override def startScheduler(newDriver: SchedulerDriver): Unit = {}
 
       override def stopExecutors(): Unit = {
         stopCalled = true
       }
-
-      markRegistered()
     }
     backend.start()
+    backend.registered(driver, Utils.TEST_FRAMEWORK_ID, Utils.TEST_MASTER_INFO)
     backend
   }
 
