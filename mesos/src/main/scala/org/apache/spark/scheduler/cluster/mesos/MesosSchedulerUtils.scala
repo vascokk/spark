@@ -28,7 +28,7 @@ import com.google.common.base.Splitter
 import org.apache.mesos.{MesosSchedulerDriver, Protos, Scheduler, SchedulerDriver}
 import org.apache.mesos.Protos.{TaskState => MesosTaskState, _}
 import org.apache.mesos.Protos.FrameworkInfo.Capability
-import org.apache.mesos.protobuf.{ByteString, GeneratedMessage}
+import org.apache.mesos.protobuf.GeneratedMessage
 
 import org.apache.spark.{SparkConf, SparkContext, SparkException}
 import org.apache.spark.TaskState
@@ -45,9 +45,6 @@ import org.apache.spark.util.Utils
 trait MesosSchedulerUtils extends Logging {
   // Lock used to wait for scheduler to be registered
   private final val registerLatch = new CountDownLatch(1)
-
-  // Driver for talking to Mesos
-  protected var mesosDriver: SchedulerDriver = null
 
   /**
    * Creates a new MesosSchedulerDriver that communicates to the Mesos master.
@@ -113,10 +110,6 @@ trait MesosSchedulerUtils extends Logging {
    */
   def startScheduler(newDriver: SchedulerDriver): Unit = {
     synchronized {
-      if (mesosDriver != null) {
-        registerLatch.await()
-        return
-      }
       @volatile
       var error: Option[Exception] = None
 
@@ -126,8 +119,7 @@ trait MesosSchedulerUtils extends Logging {
         setDaemon(true)
         override def run() {
           try {
-            mesosDriver = newDriver
-            val ret = mesosDriver.run()
+            val ret = newDriver.run()
             logInfo("driver.run() returned with code " + ret)
             if (ret != null && ret.equals(Status.DRIVER_ABORTED)) {
               error = Some(new SparkException("Error starting driver, DRIVER_ABORTED"))
@@ -377,12 +369,24 @@ trait MesosSchedulerUtils extends Logging {
     }
   }
 
-  protected def getRejectOfferDurationForUnmetConstraints(sc: SparkContext): Long = {
-    sc.conf.getTimeAsSeconds("spark.mesos.rejectOfferDurationForUnmetConstraints", "120s")
+  private def getRejectOfferDurationStr(conf: SparkConf): String = {
+    conf.get("spark.mesos.rejectOfferDuration", "120s")
   }
 
-  protected def getRejectOfferDurationForReachedMaxCores(sc: SparkContext): Long = {
-    sc.conf.getTimeAsSeconds("spark.mesos.rejectOfferDurationForReachedMaxCores", "120s")
+  protected def getRejectOfferDuration(conf: SparkConf): Long = {
+    Utils.timeStringAsSeconds(getRejectOfferDurationStr(conf))
+  }
+
+  protected def getRejectOfferDurationForUnmetConstraints(conf: SparkConf): Long = {
+    conf.getTimeAsSeconds(
+      "spark.mesos.rejectOfferDurationForUnmetConstraints",
+      getRejectOfferDurationStr(conf))
+  }
+
+  protected def getRejectOfferDurationForReachedMaxCores(conf: SparkConf): Long = {
+    conf.getTimeAsSeconds(
+      "spark.mesos.rejectOfferDurationForReachedMaxCores",
+      getRejectOfferDurationStr(conf))
   }
 
   /**
@@ -529,5 +533,34 @@ trait MesosSchedulerUtils extends Logging {
         setName("SPARK_MESOS_KRB5_CONF_BASE64").setValue(krb5conf).build()
       )
     })
+  }
+
+  protected def declineOffer(
+    driver: org.apache.mesos.SchedulerDriver,
+    offer: Offer,
+    reason: Option[String] = None,
+    refuseSeconds: Option[Long] = None): Unit = {
+
+    val id = offer.getId.getValue
+    val offerAttributes = toAttributeMap(offer.getAttributesList)
+    val mem = getResource(offer.getResourcesList, "mem")
+    val cpus = getResource(offer.getResourcesList, "cpus")
+    val ports = getRangeResource(offer.getResourcesList, "ports")
+
+    logDebug(s"Declining offer: $id with " +
+      s"attributes: $offerAttributes " +
+      s"mem: $mem " +
+      s"cpu: $cpus " +
+      s"port: $ports " +
+      refuseSeconds.map(s => s"for ${s} seconds ").getOrElse("") +
+      reason.map(r => s" (reason: $r)").getOrElse(""))
+
+    refuseSeconds match {
+      case Some(seconds) =>
+        val filters = Filters.newBuilder().setRefuseSeconds(seconds).build()
+        driver.declineOffer(offer.getId, filters)
+      case _ =>
+        driver.declineOffer(offer.getId)
+    }
   }
 }
