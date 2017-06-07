@@ -440,11 +440,6 @@ trait MesosSchedulerUtils extends Logging {
 
   /**
    * The values of the non-zero ports to be used by the executor process.
-<<<<<<< 2fff51418b548e41f8878d6e61752a3abcd7cd73
- *
-=======
-   *
->>>>>>> [Mesosphere SPARK-126] Add Mesos Kerberos support
    * @param conf the spark config to use
    * @return the ono-zero values of the ports
    */
@@ -556,6 +551,7 @@ trait MesosSchedulerUtils extends Logging {
       case _ =>
         driver.declineOffer(offer.getId)
     }
+  }
 
   // Pass the krb5.conf to the scheduler
   def passKerberosConf(envBuilder: Environment.Builder): Unit = {
