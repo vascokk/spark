@@ -40,6 +40,8 @@ object SparkPi {
       if (x*x + y*y <= 1) 1 else 0
     }.reduce(_ + _)
     println("I used $slices to determine that Pi is roughly " + 4.0 * count / (n - 1))
+    val contents = scala.io.Source.fromFile(args(1)).mkString
+    println(s"Contents of file ${args(1)}: ${contents}")
     spark.stop()
   }
 }

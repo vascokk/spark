@@ -560,7 +560,6 @@ private[spark] class MesosClusterScheduler(
       .addAllResources(cpuResourcesToUse.asJava)
       .addAllResources(memResourcesToUse.asJava)
       .setLabels(MesosProtoUtils.mesosLabels(desc.conf.get(config.DRIVER_LABELS).getOrElse("")))
-      .setContainer(MesosSchedulerBackendUtil.containerInfo(desc.conf))
       .build
   }
 
@@ -656,7 +655,7 @@ private[spark] class MesosClusterScheduler(
   }
 
   override def resourceOffers(driver: SchedulerDriver, offers: JList[Offer]): Unit = {
-    logTrace(s"Received offers from Mesos: \n${offers.asScala.mkString("\n")}")
+    logInfo(s"Received offers from Mesos: \n${offers.asScala.mkString("\n")}")
     val tasks = new mutable.HashMap[OfferID, ArrayBuffer[TaskInfo]]()
     val currentTime = new Date()
 
@@ -685,7 +684,7 @@ private[spark] class MesosClusterScheduler(
         tasks)
     }
     tasks.foreach { case (offerId, taskInfos) =>
-      logTrace(s"Launching taskInfo $taskInfos")
+      logInfo(s"Launching taskInfo $taskInfos")
       driver.launchTasks(Collections.singleton(offerId), taskInfos.asJava)
     }
 
