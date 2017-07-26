@@ -29,6 +29,9 @@ import org.apache.mesos.Protos.{TaskInfo => MesosTaskInfo, _}
 import org.apache.mesos.SchedulerDriver
 
 import org.apache.spark.{SecurityManager, SparkContext, SparkException, TaskState}
+import org.apache.spark.deploy.mesos.config._
+import org.apache.spark.deploy.security.HadoopDelegationTokenManager
+import org.apache.spark.internal.config
 import org.apache.spark.network.netty.SparkTransportConf
 import org.apache.spark.network.shuffle.mesos.MesosExternalShuffleClient
 import org.apache.spark.rpc.RpcEndpointAddress
@@ -51,9 +54,14 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     sc: SparkContext,
     master: String,
     securityManager: SecurityManager)
-  extends CoarseGrainedSchedulerBackend(scheduler, sc.env.rpcEnv)
-  with org.apache.mesos.Scheduler
-  with MesosSchedulerUtils {
+  extends CoarseGrainedSchedulerBackend(
+    scheduler,
+    sc.env.rpcEnv,
+    Some(new HadoopDelegationTokenManager(
+      sc.conf,
+      sc.hadoopConfiguration)))
+    with org.apache.mesos.Scheduler
+    with MesosSchedulerUtils {
 
   // Blacklist a slave after this many failures
   private val MAX_SLAVE_FAILURES = 2
@@ -150,7 +158,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     new MesosExternalShuffleClient(
       SparkTransportConf.fromSparkConf(conf, "shuffle"),
       securityManager,
-      securityManager.isAuthenticationEnabled())
+      securityManager.isAuthenticationEnabled(),
+      conf.get(config.SHUFFLE_REGISTRATION_TIMEOUT))
   }
 
   private var nextMesosTaskId = 0
@@ -175,7 +184,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       sc.conf,
       sc.conf.getOption("spark.mesos.driver.webui.url").orElse(sc.ui.map(_.webUrl)),
       None,
-      None,
+      Some(sc.conf.get(DRIVER_FAILOVER_TIMEOUT)),
       sc.conf.getOption("spark.mesos.driver.frameworkId")
     )
 
@@ -185,6 +194,11 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
   def createCommand(offer: Offer, numCores: Int, taskId: String): CommandInfo = {
     val environment = Environment.newBuilder()
+    val extraClassPath = conf.getOption("spark.executor.extraClassPath")
+    extraClassPath.foreach { cp =>
+      environment.addVariables(
+        Environment.Variable.newBuilder().setName("SPARK_EXECUTOR_CLASSPATH").setValue(cp).build())
+    }
     val extraJavaOpts = conf.get("spark.executor.extraJavaOptions", "")
 
     // Set the environment variable through a command prefix
@@ -414,15 +428,9 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
             .setSlaveId(offer.getSlaveId)
             .setCommand(createCommand(offer, taskCPUs + extraCoresPerExecutor, taskId))
             .setName(s"${sc.appName} $taskId")
+            .setLabels(MesosProtoUtils.mesosLabels(taskLabels))
             .addAllResources(resourcesToUse.asJava)
             .setContainer(MesosSchedulerBackendUtil.containerInfo(sc.conf))
-
-          val labelsBuilder = taskBuilder.getLabelsBuilder
-          val labels = buildMesosLabels().asJava
-
-          labelsBuilder.addAllLabels(labels)
-
-          taskBuilder.setLabels(labelsBuilder)
 
           tasks(offer.getId) ::= taskBuilder.build()
           remainingResources(offerId) = resourcesLeft.asJava
@@ -436,21 +444,6 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       }
     }
     tasks.toMap
-  }
-
-  private def buildMesosLabels(): List[Label] = {
-   taskLabels.split(",").flatMap(label =>
-      label.split(":") match {
-        case Array(key, value) =>
-          Some(Label.newBuilder()
-            .setKey(key)
-            .setValue(value)
-            .build())
-        case _ =>
-          logWarning(s"Unable to parse $label into a key:value label for the task.")
-          None
-      }
-    ).toList
   }
 
   /** Extracts task needed resources from a list of available resources. */

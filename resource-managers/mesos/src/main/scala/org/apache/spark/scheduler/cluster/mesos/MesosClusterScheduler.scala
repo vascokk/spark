@@ -30,15 +30,15 @@ import org.apache.mesos.Protos.Environment.Variable
 import org.apache.mesos.Protos.TaskStatus.Reason
 
 import org.apache.spark.{SecurityManager, SparkConf, SparkException, TaskState}
-import org.apache.spark.deploy.mesos.MesosDriverDescription
 import org.apache.spark.deploy.mesos.config
+import org.apache.spark.deploy.mesos.MesosDriverDescription
 import org.apache.spark.deploy.rest.{CreateSubmissionResponse, KillSubmissionResponse, SubmissionStatusResponse}
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.util.Utils
 
+
 /**
  * Tracks the current state of a Mesos Task that runs a Spark driver.
- *
  * @param driverDescription Submitted driver description from
  * [[org.apache.spark.deploy.rest.mesos.MesosRestServer]]
  * @param taskId Mesos TaskID generated for the task
@@ -550,7 +550,8 @@ private[spark] class MesosClusterScheduler(
     offer.remainingResources = finalResources.asJava
 
     val appName = desc.conf.get("spark.app.name")
-    val taskInfo = TaskInfo.newBuilder()
+
+    TaskInfo.newBuilder()
       .setTaskId(taskId)
       .setName(s"Driver for ${appName}")
       .setSlaveId(offer.offer.getSlaveId)
@@ -558,7 +559,9 @@ private[spark] class MesosClusterScheduler(
       .setContainer(getContainerInfo(desc))
       .addAllResources(cpuResourcesToUse.asJava)
       .addAllResources(memResourcesToUse.asJava)
-    taskInfo.build
+      .setLabels(MesosProtoUtils.mesosLabels(desc.conf.get(config.DRIVER_LABELS).getOrElse("")))
+      .setContainer(MesosSchedulerBackendUtil.containerInfo(desc.conf))
+      .build
   }
 
   private def getContainerInfo(desc: MesosDriverDescription): ContainerInfo.Builder = {
@@ -584,6 +587,9 @@ private[spark] class MesosClusterScheduler(
         val source = Volume.Source.newBuilder()
           .setType(Volume.Source.Type.SECRET)
           .setSecret(secret)
+        logInfo(s"SENTINEL: getting secret volume\n" +
+          s"Working on secretname: $secretName and filename $filename," +
+          s"Reference $reference secret $secret source $source")
         Volume.newBuilder()
           .setContainerPath(filename)
           .setSource(source)
@@ -639,14 +645,9 @@ private[spark] class MesosClusterScheduler(
         } catch {
           case e: SparkException =>
             afterLaunchCallback(submission.submissionId)
-            finishedDrivers += new MesosClusterSubmissionState(
-              submission,
-              TaskID.newBuilder().setValue(submission.submissionId).build(),
-              SlaveID.newBuilder().setValue("").build(),
-              None,
-              null,
-              None,
-              getDriverFrameworkID(submission))
+            finishedDrivers += new MesosClusterSubmissionState(submission, TaskID.newBuilder().
+              setValue(submission.submissionId).build(), SlaveID.newBuilder().setValue("").
+              build(), None, null, None, getDriverFrameworkID(submission))
             logError(s"Failed to launch the driver with id: ${submission.submissionId}, " +
               s"cpu: $driverCpu, mem: $driverMem, reason: ${e.getMessage}")
         }
@@ -684,6 +685,7 @@ private[spark] class MesosClusterScheduler(
         tasks)
     }
     tasks.foreach { case (offerId, taskInfos) =>
+      logTrace(s"Launching taskInfo $taskInfos")
       driver.launchTasks(Collections.singleton(offerId), taskInfos.asJava)
     }
 

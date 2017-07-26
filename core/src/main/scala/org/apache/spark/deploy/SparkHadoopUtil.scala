@@ -17,12 +17,13 @@
 
 package org.apache.spark.deploy
 
-import java.io.IOException
+import java.io._
 import java.security.PrivilegedExceptionAction
 import java.text.DateFormat
 import java.util.{Arrays, Comparator, Date, Locale}
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 import scala.util.control.NonFatal
 
 import com.google.common.primitives.Longs
@@ -127,13 +128,17 @@ class SparkHadoopUtil extends Logging {
 
   def isYarnMode(): Boolean = { false }
 
-  def getCurrentUserCredentials(): Credentials = { null }
-
-  def addCurrentUserCredentials(creds: Credentials) {}
-
   def addSecretKeyToUserCredentials(key: String, secret: String) {}
 
   def getSecretKeyFromUserCredentials(key: String): Array[Byte] = { null }
+
+  def getCurrentUserCredentials(): Credentials = {
+    UserGroupInformation.getCurrentUser().getCredentials()
+  }
+
+  def addCurrentUserCredentials(creds: Credentials): Unit = {
+    UserGroupInformation.getCurrentUser.addCredentials(creds)
+  }
 
   def loginUserFromKeytab(principalName: String, keytabFilename: String) {
     UserGroupInformation.loginUserFromKeytab(principalName, keytabFilename)
@@ -143,14 +148,29 @@ class SparkHadoopUtil extends Logging {
    * Returns a function that can be called to find Hadoop FileSystem bytes read. If
    * getFSBytesReadOnThreadCallback is called from thread r at time t, the returned callback will
    * return the bytes read on r since t.
-   *
-   * @return None if the required method can't be found.
    */
   private[spark] def getFSBytesReadOnThreadCallback(): () => Long = {
-    val threadStats = FileSystem.getAllStatistics.asScala.map(_.getThreadStatistics)
-    val f = () => threadStats.map(_.getBytesRead).sum
-    val baselineBytesRead = f()
-    () => f() - baselineBytesRead
+    val f = () => FileSystem.getAllStatistics.asScala.map(_.getThreadStatistics.getBytesRead).sum
+    val baseline = (Thread.currentThread().getId, f())
+
+    /**
+     * This function may be called in both spawned child threads and parent task thread (in
+     * PythonRDD), and Hadoop FileSystem uses thread local variables to track the statistics.
+     * So we need a map to track the bytes read from the child threads and parent thread,
+     * summing them together to get the bytes read of this task.
+     */
+    new Function0[Long] {
+      private val bytesReadMap = new mutable.HashMap[Long, Long]()
+
+      override def apply(): Long = {
+        bytesReadMap.synchronized {
+          bytesReadMap.put(Thread.currentThread().getId, f())
+          bytesReadMap.map { case (k, v) =>
+            v - (if (k == baseline._1) baseline._2 else 0)
+          }.sum
+        }
+      }
+    }
   }
 
   /**
@@ -321,7 +341,7 @@ class SparkHadoopUtil extends Logging {
     if (credentials != null) {
       credentials.getAllTokens.asScala.map(tokenToString)
     } else {
-      Seq()
+      Seq.empty
     }
   }
 
@@ -375,6 +395,21 @@ class SparkHadoopUtil extends Logging {
       s"path=${status.getPath}:${status.getOwner}:${status.getGroup}" +
       s"${if (status.isDirectory) "d" else "-"}$perm")
     false
+  }
+
+  def serialize(creds: Credentials): Array[Byte] = {
+    val byteStream = new ByteArrayOutputStream
+    val dataStream = new DataOutputStream(byteStream)
+    creds.writeTokenStorageToStream(dataStream)
+    byteStream.toByteArray
+  }
+
+  def deserialize(tokenBytes: Array[Byte]): Credentials = {
+    val tokensBuf = new ByteArrayInputStream(tokenBytes)
+
+    val creds = new Credentials()
+    creds.readTokenStorageStream(new DataInputStream(tokensBuf))
+    creds
   }
 }
 
