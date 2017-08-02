@@ -586,9 +586,6 @@ private[spark] class MesosClusterScheduler(
         val source = Volume.Source.newBuilder()
           .setType(Volume.Source.Type.SECRET)
           .setSecret(secret)
-        logInfo(s"SENTINEL: getting secret volume\n" +
-          s"Working on secretname: $secretName and filename $filename," +
-          s"Reference $reference secret $secret source $source")
         Volume.newBuilder()
           .setContainerPath(filename)
           .setSource(source)
@@ -684,7 +681,6 @@ private[spark] class MesosClusterScheduler(
         tasks)
     }
     tasks.foreach { case (offerId, taskInfos) =>
-      logInfo(s"Launching taskInfo $taskInfos")
       driver.launchTasks(Collections.singleton(offerId), taskInfos.asJava)
     }
 
