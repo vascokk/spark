@@ -32,6 +32,7 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.hadoop.conf.{Configuration => HadoopConfiguration}
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.security.UserGroupInformation
+import org.apache.hadoop.yarn.conf.YarnConfiguration
 import org.apache.ivy.Ivy
 import org.apache.ivy.core.LogOptions
 import org.apache.ivy.core.module.descriptor._
@@ -47,6 +48,7 @@ import org.apache.ivy.plugins.resolver.{ChainResolver, FileSystemResolver, IBibl
 import org.apache.spark._
 import org.apache.spark.api.r.RUtils
 import org.apache.spark.deploy.rest._
+import org.apache.spark.internal.Logging
 import org.apache.spark.launcher.SparkLauncher
 import org.apache.spark.util._
 
@@ -601,6 +603,26 @@ object SparkSubmit extends CommandLineUtils {
       }
     }
 
+    // assure a keytab is available from any place in a JVM
+    if (clusterManager == YARN || clusterManager == LOCAL || clusterManager == MESOS) {
+      if (args.principal != null) {
+        if (args.keytab != null) {
+          require(new File(args.keytab).exists(), s"Keytab file: ${args.keytab} does not exist")
+          // Add keytab and principal configurations in sysProps to make them available
+          // for later use; e.g. in spark sql, the isolated class loader used to talk
+          // to HiveMetastore will use these settings. They will be set as Java system
+          // properties and then loaded by SparkConf
+          sysProps.put("spark.yarn.keytab", args.keytab)
+          sysProps.put("spark.yarn.principal", args.principal)
+          UserGroupInformation.loginUserFromKeytab(args.principal, args.keytab)
+        }
+      }
+    }
+
+    if (clusterManager == MESOS && UserGroupInformation.isSecurityEnabled) {
+      setRMPrincipal(sysProps)
+    }
+
     // In yarn-cluster mode, use yarn.Client as a wrapper around the user class
     if (isYarnCluster) {
       childMainClass = "org.apache.spark.deploy.yarn.Client"
@@ -683,6 +705,18 @@ object SparkSubmit extends CommandLineUtils {
     }
 
     (childArgs, childClasspath, sysProps, childMainClass)
+  }
+
+  // [SPARK-20328]. HadoopRDD calls into a Hadoop library that fetches delegation tokens with
+  // renewer set to the YARN ResourceManager.  Since YARN isn't configured in Mesos mode, we
+  // must trick it into thinking we're YARN.
+  private def setRMPrincipal(sysProps: HashMap[String, String]): Unit = {
+    val shortUserName = UserGroupInformation.getCurrentUser.getShortUserName
+    val key = s"spark.hadoop.${YarnConfiguration.RM_PRINCIPAL}"
+    // scalastyle:off println
+    printStream.println(s"Setting ${key} to ${shortUserName}")
+    // scalastyle:off println
+    sysProps.put(key, shortUserName)
   }
 
   /**
