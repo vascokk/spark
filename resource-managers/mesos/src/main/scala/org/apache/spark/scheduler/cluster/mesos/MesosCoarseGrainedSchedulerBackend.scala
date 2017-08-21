@@ -155,8 +155,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     new MesosExternalShuffleClient(
       SparkTransportConf.fromSparkConf(conf, "shuffle"),
       securityManager,
-      securityManager.isAuthenticationEnabled(),
-      conf.get(config.SHUFFLE_REGISTRATION_TIMEOUT))
+      securityManager.isAuthenticationEnabled())
   }
 
   private var nextMesosTaskId = 0
