@@ -23,8 +23,6 @@ import java.net.URL
 import java.nio.file.Files
 import java.security.{KeyStore, PrivilegedExceptionAction}
 import java.security.cert.X509Certificate
-import java.security.{KeyStore, PrivilegedExceptionAction}
-import java.security.cert.X509Certificate
 import java.text.ParseException
 import javax.net.ssl._
 
@@ -34,7 +32,6 @@ import scala.util.Properties
 
 import com.google.common.io.ByteStreams
 import org.apache.commons.io.FileUtils
-import com.google.common.io.ByteStreams
 import org.apache.commons.lang3.StringUtils
 import org.apache.hadoop.conf.{Configuration => HadoopConfiguration}
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -134,31 +131,31 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Kill an existing submission using the REST protocol. Standalone and Mesos cluster mode only.
-    */
+   * Kill an existing submission using the REST protocol. Standalone and Mesos cluster mode only.
+   */
   private def kill(args: SparkSubmitArguments): Unit = {
     new RestSubmissionClient(args.master)
       .killSubmission(args.submissionToKill)
   }
 
   /**
-    * Request the status of an existing submission using the REST protocol.
-    * Standalone and Mesos cluster mode only.
-    */
+   * Request the status of an existing submission using the REST protocol.
+   * Standalone and Mesos cluster mode only.
+   */
   private def requestStatus(args: SparkSubmitArguments): Unit = {
     new RestSubmissionClient(args.master)
       .requestSubmissionStatus(args.submissionToRequestStatusFor)
   }
 
   /**
-    * Submit the application using the provided parameters.
-    *
-    * This runs in two steps. First, we prepare the launch environment by setting up
-    * the appropriate classpath, system properties, and application arguments for
-    * running the child main class based on the cluster manager and the deploy mode.
-    * Second, we use this launch environment to invoke the main method of the child
-    * main class.
-    */
+   * Submit the application using the provided parameters.
+   *
+   * This runs in two steps. First, we prepare the launch environment by setting up
+   * the appropriate classpath, system properties, and application arguments for
+   * running the child main class based on the cluster manager and the deploy mode.
+   * Second, we use this launch environment to invoke the main method of the child
+   * main class.
+   */
   @tailrec
   private def submit(args: SparkSubmitArguments): Unit = {
     val (childArgs, childClasspath, sysProps, childMainClass) = prepareSubmitEnvironment(args)
@@ -218,14 +215,14 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Prepare the environment for submitting an application.
-    * This returns a 4-tuple:
-    * (1) the arguments for the child process,
-    * (2) a list of classpath entries for the child,
-    * (3) a map of system properties, and
-    * (4) the main class for the child
-    * Exposed for testing.
-    */
+   * Prepare the environment for submitting an application.
+   * This returns a 4-tuple:
+   * (1) the arguments for the child process,
+   * (2) a list of classpath entries for the child,
+   * (3) a map of system properties, and
+   * (4) the main class for the child
+   * Exposed for testing.
+   */
   private[deploy] def prepareSubmitEnvironment(args: SparkSubmitArguments)
   : (Seq[String], Seq[String], Map[String, String], String) = {
     // Return values
@@ -698,11 +695,11 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Run the main method of the child class using the provided launch environment.
-    *
-    * Note that this main class will not be the one provided by the user if we're
-    * running cluster deploy mode or python applications.
-    */
+   * Run the main method of the child class using the provided launch environment.
+   *
+   * Note that this main class will not be the one provided by the user if we're
+   * running cluster deploy mode or python applications.
+   */
   private def runMain(
                        childArgs: Seq[String],
                        childClasspath: Seq[String],
@@ -813,43 +810,43 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Return whether the given primary resource represents a user jar.
-    */
+   * Return whether the given primary resource represents a user jar.
+   */
   private[deploy] def isUserJar(res: String): Boolean = {
     !isShell(res) && !isPython(res) && !isInternal(res) && !isR(res)
   }
 
   /**
-    * Return whether the given primary resource represents a shell.
-    */
+   * Return whether the given primary resource represents a shell.
+   */
   private[deploy] def isShell(res: String): Boolean = {
     (res == SPARK_SHELL || res == PYSPARK_SHELL || res == SPARKR_SHELL)
   }
 
   /**
-    * Return whether the given main class represents a sql shell.
-    */
+   * Return whether the given main class represents a sql shell.
+   */
   private[deploy] def isSqlShell(mainClass: String): Boolean = {
     mainClass == "org.apache.spark.sql.hive.thriftserver.SparkSQLCLIDriver"
   }
 
   /**
-    * Return whether the given main class represents a thrift server.
-    */
+   * Return whether the given main class represents a thrift server.
+   */
   private def isThriftServer(mainClass: String): Boolean = {
     mainClass == "org.apache.spark.sql.hive.thriftserver.HiveThriftServer2"
   }
 
   /**
-    * Return whether the given primary resource requires running python.
-    */
+   * Return whether the given primary resource requires running python.
+   */
   private[deploy] def isPython(res: String): Boolean = {
     res != null && res.endsWith(".py") || res == PYSPARK_SHELL
   }
 
   /**
-    * Return whether the given primary resource requires running R.
-    */
+   * Return whether the given primary resource requires running R.
+   */
   private[deploy] def isR(res: String): Boolean = {
     res != null && res.endsWith(".R") || res == SPARKR_SHELL
   }
@@ -859,9 +856,9 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Merge a sequence of comma-separated file lists, some of which may be null to indicate
-    * no files, into a single comma-separated string.
-    */
+   * Merge a sequence of comma-separated file lists, some of which may be null to indicate
+   * no files, into a single comma-separated string.
+   */
   private[deploy] def mergeFileLists(lists: String*): String = {
     val merged = lists.filterNot(StringUtils.isBlank)
       .flatMap(_.split(","))
@@ -870,14 +867,14 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Download a list of remote files to temp local files. If the file is local, the original file
-    * will be returned.
-    *
-    * @param fileList        A comma separated file list.
-    * @param targetDir       A temporary directory for which downloaded files
-    * @param sparkProperties Spark properties
-    * @return A comma separated local files list.
-    */
+   * Download a list of remote files to temp local files. If the file is local, the original file
+   * will be returned.
+   *
+   * @param fileList        A comma separated file list.
+   * @param targetDir       A temporary directory for which downloaded files
+   * @param sparkProperties Spark properties
+   * @return A comma separated local files list.
+   */
   private[deploy] def downloadFileList(
                                         fileList: String,
                                         targetDir: File,
@@ -890,14 +887,14 @@ object SparkSubmit extends CommandLineUtils {
   }
 
   /**
-    * Download a file from the remote to a local temporary directory. If the input path points to
-    * a local path, returns it with no operation.
-    *
-    * @param path            A file path from where the files will be downloaded.
-    * @param targetDir       A temporary directory for which downloaded files
-    * @param sparkProperties Spark properties
-    * @return A comma separated local files list.
-    */
+   * Download a file from the remote to a local temporary directory. If the input path points to
+   * a local path, returns it with no operation.
+   *
+   * @param path            A file path from where the files will be downloaded.
+   * @param targetDir       A temporary directory for which downloaded files
+   * @param sparkProperties Spark properties
+   * @return A comma separated local files list.
+   */
   private[deploy] def downloadFile(
                                     path: String,
                                     targetDir: File,
@@ -942,12 +939,10 @@ object SparkSubmit extends CommandLineUtils {
               Array({
                 new X509TrustManager {
                   override def getAcceptedIssuers: Array[X509Certificate] = null
-
                   override def checkClientTrusted(
-                                                   x509Certificates: Array[X509Certificate], s: String) {}
-
+                      x509Certificates: Array[X509Certificate], s: String) {}
                   override def checkServerTrusted(
-                                                   x509Certificates: Array[X509Certificate], s: String) {}
+                      x509Certificates: Array[X509Certificate], s: String) {}
                 }: TrustManager
               })
             }
