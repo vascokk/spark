@@ -437,7 +437,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
             .setLabels(MesosProtoUtils.mesosLabels(taskLabels))
             .addAllResources(resourcesToUse.asJava)
             .setContainer(MesosSchedulerBackendUtil.containerInfo(sc.conf))
-
+          uglyF(s"Built mesos Task ${taskBuilder.toString}")
           tasks(offer.getId) ::= taskBuilder.build()
           remainingResources(offerId) = resourcesLeft.asJava
           totalCoresAcquired += taskCPUs

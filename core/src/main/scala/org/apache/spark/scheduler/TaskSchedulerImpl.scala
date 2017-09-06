@@ -670,7 +670,7 @@ private[spark] class TaskSchedulerImpl(
         throw new IllegalStateException("Spark context stopped while waiting for backend")
       }
       synchronized {
-        this.wait(100)
+        this.wait(1000)
       }
     }
   }

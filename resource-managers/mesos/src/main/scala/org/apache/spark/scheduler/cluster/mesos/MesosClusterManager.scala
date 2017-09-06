@@ -43,12 +43,17 @@ private[spark] class MesosClusterManager extends ExternalClusterManager {
 
     val mesosUrl = MESOS_REGEX.findFirstMatchIn(masterURL).get.group(1)
     val coarse = sc.conf.getBoolean("spark.mesos.coarse", defaultValue = true)
+    val backend = sc.conf.getOption("spark.mesos.backend").getOrElse(Nil)
     if (coarse) {
-      new MesosCoarseGrainedSchedulerBackend(
-        scheduler.asInstanceOf[TaskSchedulerImpl],
-        sc,
-        mesosUrl,
-        sc.env.securityManager)
+      if (backend == "sdk") {
+        new MesosTaskCoordinatorBackend(scheduler.asInstanceOf[TaskSchedulerImpl], sc)
+      } else {
+        new MesosCoarseGrainedSchedulerBackend(
+          scheduler.asInstanceOf[TaskSchedulerImpl],
+          sc,
+          mesosUrl,
+          sc.env.securityManager)
+      }
     } else {
       new MesosFineGrainedSchedulerBackend(
         scheduler.asInstanceOf[TaskSchedulerImpl],

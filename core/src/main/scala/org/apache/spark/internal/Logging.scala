@@ -49,6 +49,12 @@ trait Logging {
     log_
   }
 
+  protected def uglyF(msg: => String) {
+    if (log.isInfoEnabled) {
+      log.info("UGLY: " ++ msg)
+    }
+  }
+
   // Log methods that take only a String
   protected def logInfo(msg: => String) {
     if (log.isInfoEnabled) log.info(msg)

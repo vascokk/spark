@@ -688,6 +688,7 @@ private[spark] class MesosClusterScheduler(
         val queuedTasks = tasks.getOrElseUpdate(offer.offer.getId, new ArrayBuffer[TaskInfo])
         try {
           val task = createTaskInfo(submission, offer)
+          uglyF(s"TaskInfo ${task.toString}")
           queuedTasks += task
           logTrace(s"Using offer ${offer.offer.getId.getValue} to launch driver " +
             submission.submissionId)
