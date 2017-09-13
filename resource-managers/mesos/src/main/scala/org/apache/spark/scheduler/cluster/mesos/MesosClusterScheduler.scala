@@ -553,6 +553,29 @@ private[spark] class MesosClusterScheduler(
     }
   }
 
+  private def buildSdkCommand(desc: MesosDriverDescription): CommandInfo = {
+    def getDriverEnv(): Environment = {
+      val env = desc.conf.getAllWithPrefix("spark.mesos.driverEnv.")
+      val envBuilder = Environment.newBuilder()
+      env.foreach {
+        case (k, v) => envBuilder.addVariables(Variable.newBuilder().setName(k).setValue(v))
+      }
+      envBuilder.build
+    }
+
+    CommandInfo.newBuilder()
+      .setValue("export LD_LIBRARY_PATH=$MESOS_SANDBOX/libmesos-bundle/lib:$LD_LIBRARY_PATH; " +
+        "export " +
+        "MESOS_NATIVE_JAVA_LIBRARY=$(ls $MESOS_SANDBOX/libmesos-bundle/lib/libmesos-*.so); " +
+        "export JAVA_HOME=$(ls -d $MESOS_SANDBOX/jre*/); export JAVA_HOME=${JAVA_HOME%/}; " +
+        "export PATH=$(ls -d $JAVA_HOME/bin):$PATH &&  " +
+        "export JAVA_OPTS=\"-Xms256M -Xmx512M -XX:-HeapDumpOnOutOfMemoryError\" &&  " +
+        "./sdkspark-scheduler/bin/sdkspark ./sdkspark-scheduler/svc.yml")
+      .setEnvironment(getDriverEnv())
+      .addAllUris(getDriverUris(desc).asJava)
+      .build
+  }
+
   private def createTaskInfo(desc: MesosDriverDescription, offer: ResourceOffer): TaskInfo = {
     val taskId = TaskID.newBuilder().setValue(desc.submissionId).build()
 
@@ -567,16 +590,27 @@ private[spark] class MesosClusterScheduler(
     val driverLabels = MesosProtoUtils.mesosLabels(desc.conf.get(config.DRIVER_LABELS)
       .getOrElse(""))
 
-    TaskInfo.newBuilder()
+    val builder = TaskInfo.newBuilder()
       .setTaskId(taskId)
-      .setName(s"Driver for ${appName}")
       .setSlaveId(offer.offer.getSlaveId)
-      .setCommand(buildDriverCommand(desc))
-      .setContainer(getContainerInfo(desc))
       .addAllResources(cpuResourcesToUse.asJava)
       .addAllResources(memResourcesToUse.asJava)
-      .setLabels(driverLabels)
-      .build
+
+    if (desc.conf.getOption("spark.mesos.backend").isDefined) {
+      uglyF(s"got SDK option! ${desc.conf.get("spark.mesos.backend")}")
+      builder
+        .setName(s"SDK driver for ${appName}")
+        .setCommand(buildSdkCommand(desc))
+        .build
+    } else {
+      uglyF("No backend options")
+      builder
+        .setName(s"Driver for ${appName}")
+        .setCommand(buildDriverCommand(desc))
+        .setContainer(getContainerInfo(desc))
+        .setLabels(driverLabels)
+        .build
+    }
   }
 
   private def getContainerInfo(desc: MesosDriverDescription): ContainerInfo.Builder = {

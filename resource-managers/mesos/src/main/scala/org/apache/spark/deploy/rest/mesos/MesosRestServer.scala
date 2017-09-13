@@ -121,6 +121,7 @@ private[mesos] class MesosSubmitRequestServlet(
       responseServlet: HttpServletResponse): SubmitRestProtocolResponse = {
     requestMessage match {
       case submitRequest: CreateSubmissionRequest =>
+        uglyF(s"got requestMessageJson $requestMessageJson")
         val driverDescription = buildDriverDescription(submitRequest)
         val s = scheduler.submitDriver(driverDescription)
         s.serverSparkVersion = sparkVersion
