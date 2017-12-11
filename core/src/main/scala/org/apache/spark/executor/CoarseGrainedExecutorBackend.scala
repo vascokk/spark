@@ -27,6 +27,8 @@ import scala.collection.mutable
 import scala.util.{Failure, Success}
 import scala.util.control.NonFatal
 
+import com.google.common.hash.HashCodes
+
 import org.apache.spark._
 import org.apache.spark.TaskState.TaskState
 import org.apache.spark.deploy.SparkHadoopUtil
@@ -198,14 +200,10 @@ private[spark] object CoarseGrainedExecutorBackend extends Logging {
       val executorConf = new SparkConf
 
       if (System.getenv(SecurityManager.ENV_AUTH_SECRET) != null) {
-        log.info(s"Found auth secret ${System.getenv(SecurityManager.ENV_AUTH_SECRET)}")
         executorConf.set("spark.authenticate", "true")
         val secret = System.getenv(SecurityManager.ENV_AUTH_SECRET)
         if (Files.exists(Paths.get(secret))) {
-          log.info(s"Found FBS at $secret")
-          // val bytes = Files.readAllBytes(Paths.get(secret))
-          val s = scala.io.Source.fromFile(secret, "utf-8").getLines.mkString
-          log.info(s"Decoded secret into $s")
+          val s = HashCodes.fromBytes(Files.readAllBytes(Paths.get(secret))).toString
           executorConf.set(SecurityManager.SPARK_AUTH_SECRET_CONF, s)
         }
       }

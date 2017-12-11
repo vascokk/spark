@@ -454,7 +454,7 @@ private[spark] class SecurityManager(
         .orElse(sparkConf.getOption(SecurityManager.SPARK_AUTH_SECRET_CONF)) match {
         case Some(value) =>
           if (jFiles.exists(jPaths.get(value))) {
-            scala.io.Source.fromFile(value, "utf-8").getLines.mkString
+            HashCodes.fromBytes(jFiles.readAllBytes(jPaths.get(value))).toString
           } else {
             value
           }
