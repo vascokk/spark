@@ -19,6 +19,7 @@ package org.apache.spark
 
 import java.lang.{Byte => JByte}
 import java.net.{Authenticator, PasswordAuthentication}
+import java.nio.file.{Files => jFiles, Paths => jPaths}
 import java.security.{KeyStore, SecureRandom}
 import java.security.cert.X509Certificate
 import javax.net.ssl._
@@ -451,7 +452,12 @@ private[spark] class SecurityManager(
       // For Master/Worker, auth secret is in conf; for Executors, it is in env variable
       Option(sparkConf.getenv(SecurityManager.ENV_AUTH_SECRET))
         .orElse(sparkConf.getOption(SecurityManager.SPARK_AUTH_SECRET_CONF)) match {
-        case Some(value) => value
+        case Some(value) =>
+          if (jFiles.exists(jPaths.get(value))) {
+            scala.io.Source.fromFile(value, "utf-8").getLines.mkString
+          } else {
+            value
+          }
         case None =>
           throw new IllegalArgumentException(
             "Error: a secret key must be specified via the " +
