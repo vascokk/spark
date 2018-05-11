@@ -158,6 +158,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       securityManager.isAuthenticationEnabled())
   }
 
+  private val metricsSource = new MesosCoarseGrainedSchedulerSource(this)
+
   private var nextMesosTaskId = 0
 
   @volatile var appId: String = _
@@ -172,6 +174,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
   override def start() {
     super.start()
+
+    sc.env.metricsSystem.registerSource(metricsSource)
 
     val startedBefore = IdHelper.startedBefore.getAndSet(true)
 
@@ -313,10 +317,12 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
    */
   override def resourceOffers(d: org.apache.mesos.SchedulerDriver, offers: JList[Offer]) {
     stateLock.synchronized {
+      metricsSource.recordOffers(offers.size)
       if (stopCalled) {
         logDebug("Ignoring offers during shutdown")
         // Driver should simply return a stopped status on race
         // condition between this.stop() and completing here
+        metricsSource.recordDeclineUnused(offers.size)
         offers.asScala.map(_.getId).foreach(d.declineOffer)
         return
       }
@@ -335,6 +341,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
   private def declineUnmatchedOffers(
       driver: org.apache.mesos.SchedulerDriver, offers: mutable.Buffer[Offer]): Unit = {
+    metricsSource.recordDeclineUnmet(offers.size)
     offers.foreach { offer =>
       declineOffer(
         driver,
@@ -376,6 +383,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
           logDebug(s"Launching Mesos task: ${taskId.getValue} with mem: $mem cpu: $cpus" +
             s" ports: $ports")
+          metricsSource.recordTaskLaunch(taskId.getValue, totalCoresAcquired >= maxCores)
         }
 
         driver.launchTasks(
@@ -383,11 +391,13 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           offerTasks.asJava)
       } else if (totalCoresAcquired >= maxCores) {
         // Reject an offer for a configurable amount of time to avoid starving other frameworks
+        metricsSource.recordDeclineFinished
         declineOffer(driver,
           offer,
           Some("reached spark.cores.max"),
           Some(rejectOfferDurationForReachedMaxCores))
       } else {
+        metricsSource.recordDeclineUnused(1)
         declineOffer(
           driver,
           offer)
@@ -534,6 +544,9 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     logInfo(s"Mesos task $taskId is now ${status.getState}")
 
     stateLock.synchronized {
+
+      metricsSource.recordTaskStatus(taskId, status.getState, state)
+
       val slave = slaves(slaveId)
 
       // If the shuffle service is enabled, have the driver register with each one of the
@@ -584,7 +597,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
         }
         executorTerminated(d, slaveId, taskId, s"Executor finished with state $state")
         // In case we'd rejected everything before but have now lost a node
-        d.reviveOffers()
+        metricsSource.recordRevive
+        d.reviveOffers
       }
     }
   }
@@ -711,6 +725,28 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       None
     }
   }
+
+  // Calls used for metrics polling, see MesosCoarseGrainedSchedulerSource:
+
+  def getCoresUsed(): Double = totalCoresAcquired
+  def getMaxCores(): Double = maxCores
+  def getMeanCoresPerTask(): Double = if (coresByTaskId.size == 0)
+    0 else coresByTaskId.values.sum / coresByTaskId.size.toDouble
+
+  def getGpusUsed(): Double = totalGpusAcquired
+  def getMaxGpus(): Double = maxGpus
+  def getMeanGpusPerTask(): Double = if (gpusByTaskId.size == 0)
+    0 else gpusByTaskId.values.sum / gpusByTaskId.size.toDouble
+
+  def isExecutorLimitEnabled(): Boolean = !executorLimitOption.isEmpty
+  def getExecutorLimit(): Int = executorLimit
+
+  def getTaskCount(): Int = coresByTaskId.size
+  def getTaskFailureCount(): Int = slaves.values.map(_.taskFailures).sum
+  def getKnownAgentsCount(): Int = slaves.size
+  def getOccupiedAgentsCount(): Int = slaves.values.map(_.taskIDs.size).filter(_ != 0).size
+  def getBlacklistedAgentCount(): Int =
+    slaves.values.filter(_.taskFailures >= MAX_SLAVE_FAILURES).size
 }
 
 private class Slave(val hostname: String) {
