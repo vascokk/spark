@@ -78,7 +78,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
 
   private val useFetcherCache = conf.getBoolean("spark.mesos.fetcherCache.enable", false)
 
-  private val executorGpus = conf.getInt("spark.mesos.executor.gpus", 0)
+  private val executorGpusOption = conf.getOption("spark.mesos.executor.gpus").map(_.toInt)
 
   private val maxGpus = conf.getInt("spark.mesos.gpus.max", 0)
 
@@ -459,7 +459,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
           val taskId = newMesosTaskId()
           val offerCPUs = getResource(resources, "cpus").toInt
           val offerGPUs = getResource(resources, "gpus").toInt
-          var taskGPUs = executorGpus
+          var taskGPUs = executorGpus(offerGPUs)
           val taskCPUs = executorCores(offerCPUs)
           val taskMemory = executorMemory(sc)
 
@@ -521,6 +521,7 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
     val offerCPUs = getResource(resources, "cpus").toInt
     val offerGPUs = getResource(resources, "gpus").toInt
     val cpus = executorCores(offerCPUs)
+    val gpus = executorGpus(offerGPUs)
     val mem = executorMemory(sc)
     val ports = getRangeResource(resources, "ports")
     val meetsPortRequirements = checkPorts(sc.conf, ports)
@@ -530,8 +531,8 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
       cpus + totalCoresAcquired <= maxCores &&
       mem <= offerMem &&
       numExecutors() < executorLimit &&
-      executorGpus <= offerGPUs &&
-      executorGpus + totalGpusAcquired <= maxGpus &&
+      gpus <= offerGPUs &&
+      gpus + totalGpusAcquired <= maxGpus &&
       slaves.get(slaveId).map(_.taskFailures).getOrElse(0) < MAX_SLAVE_FAILURES &&
       meetsPortRequirements
   }
@@ -539,6 +540,12 @@ private[spark] class MesosCoarseGrainedSchedulerBackend(
   private def executorCores(offerCPUs: Int): Int = {
     executorCoresOption.getOrElse(
       math.min(offerCPUs, maxCores - totalCoresAcquired)
+    )
+  }
+
+  private def executorGpus(offerGPUs: Int): Int = {
+    executorGpusOption.getOrElse(
+      math.min(offerGPUs, maxGpus - totalGpusAcquired)
     )
   }
 

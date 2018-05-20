@@ -165,6 +165,21 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
   }
 
 
+  test("mesos does not acquire more than spark.mesos.gpus.max") {
+    val maxGpus = 5
+    setBackend(Map("spark.mesos.gpus.max" -> maxGpus.toString))
+
+    val executorMemory = backend.executorMemory(sc)
+    offerResources(List(Resources(executorMemory, 1, maxGpus + 1)))
+
+    val taskInfos = verifyTaskLaunched(driver, "o1")
+    assert(taskInfos.length == 1)
+
+    val gpus = backend.getResource(taskInfos.head.getResourcesList, "gpus")
+    assert(gpus == maxGpus)
+  }
+
+
   test("mesos acquires spark.mesos.executor.gpus number of gpus per executor") {
     setBackend(Map("spark.mesos.gpus.max" -> "5",
                    "spark.mesos.executor.gpus" -> "2"))
