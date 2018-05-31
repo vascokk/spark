@@ -91,3 +91,4 @@ spark-warehouse/
 *.Rproj.*
 
 .Rproj.user
+/python/.eggs/

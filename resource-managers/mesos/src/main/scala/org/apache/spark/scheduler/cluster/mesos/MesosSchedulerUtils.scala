@@ -545,12 +545,14 @@ trait MesosSchedulerUtils extends Logging {
     val offerAttributes = toAttributeMap(offer.getAttributesList)
     val mem = getResource(offer.getResourcesList, "mem")
     val cpus = getResource(offer.getResourcesList, "cpus")
+    val gpus = getResource(offer.getResourcesList, "gpus")
     val ports = getRangeResource(offer.getResourcesList, "ports")
 
     logDebug(s"Declining offer: $id with " +
       s"attributes: $offerAttributes " +
       s"mem: $mem " +
       s"cpu: $cpus " +
+      s"gpu: $gpus " +
       s"port: $ports " +
       refuseSeconds.map(s => s"for ${s} seconds ").getOrElse("") +
       reason.map(r => s" (reason: $r)").getOrElse(""))

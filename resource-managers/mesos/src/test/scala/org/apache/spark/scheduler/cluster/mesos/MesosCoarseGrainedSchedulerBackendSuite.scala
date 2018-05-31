@@ -179,6 +179,39 @@ class MesosCoarseGrainedSchedulerBackendSuite extends SparkFunSuite
     assert(gpus == maxGpus)
   }
 
+  test("mesos supports spark.executor.gpus") {
+    val executorGpus = 1
+    val maxGpus = 5
+    setBackend(Map("spark.executor.gpus" -> executorGpus.toString,
+                   "spark.mesos.gpus.max" -> maxGpus.toString))
+
+    val executorMemory = backend.executorMemory(sc)
+    val offers = List(Resources(executorMemory, 1, 1))
+    offerResources(offers)
+
+    val taskInfos = verifyTaskLaunched(driver, "o1")
+    assert(taskInfos.length == 1)
+
+    val gpus = backend.getResource(taskInfos.head.getResourcesList, "gpus")
+    assert(gpus == executorGpus)
+  }
+
+  test("mesos decline offer when spark.executor.gpus > gpus available ") {
+    val executorGpus = 1
+    val maxGpus = 5
+    setBackend(Map("spark.executor.gpus" -> executorGpus.toString,
+      "spark.mesos.gpus.max" -> maxGpus.toString))
+
+    val executorMemory = backend.executorMemory(sc)
+
+    offerResources(List(
+      Resources(executorMemory, 1, 1),
+      Resources(executorMemory, 1, 0)))
+
+    verifyTaskLaunched(driver, "o1")
+    verifyDeclinedOffer(driver, createOfferId("o2"), false)
+  }
+
 
   test("mesos declines offers that violate attribute constraints") {
     setBackend(Map("spark.mesos.constraints" -> "x:true"))
